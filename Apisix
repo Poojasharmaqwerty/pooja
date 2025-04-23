@@ -1,0 +1,199 @@
+              
+
+                                                            Setup APISIX on Kubernetes Using Helm
+
+1. Introduction
+APISIX is an API Gateway that helps manage and control API traffic. It acts like a middleman between users (clients) and backend services (APIs, databases, microservices).
+
+How It Works—
+A client sends a request— APISIX receives it.
+APISIX checks security rules and routes the request.
+The request is forwarded to the correct backend service.
+The backend responds— APISIX returns the result to the client.
+
+2. Install NFS Subdir External Provisioner
+APISIX requires persistent storage. We use an NFS (Network File System) provisioner to manage this storage dynamically.
+
+Use proxy for add rep0:
+
+2.1. Add the Helm Repository for NFS Provisioner
+helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+
+2.2 Install the NFS Provisioner
+Create Namespace 
+Kubectl create ns  nfsapisix
+
+
+helm install nfs-subdir-external-provisioner .
+    --set nfs.server=10.x.x.x 
+    --set nfs.path=/nfs_upsc_staging 
+    -n nfsapisix
+
+
+ nfs.server=10.x.x.x  : Specifies the NFS server IP.
+ nfs.path=/nfs_upsc_staging : Defines the storage path on the NFS server.
+ -n nfsapisix :  Installs the provisioner in the   nfsapisix  namespace.
+
+
+2.3. Create a Persistent Volume Claim (PVC)
+
+ vim pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: data-apisix-etcd
+  namespace: apisix
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: nfs-client
+
+
+2.4. Apply the PVC
+kubectl apply -f pvc.yaml
+
+
+2.5. Check PVC Status
+kubectl get pvc -n apisix
+
+
+3. Prepare the Base Machine 
+3.1 Clone Deployment Files (on a Local Machine with Internet)
+
+This repository contains deployment files for APISIX on Kubernetes.
+git clone https://github.com/zaunist/apisix-on-kubernetes.git
+
+3.2 Clone the Official APISIX Helm Chart
+This Helm chart will be used to deploy APISIX.
+git clone https://github.com/apache/apisix-helm-chart.git
+
+2.3 Transfer Files to Kubernetes Server
+Since the server does not have internet access, use scp to transfer the files:
+scp -r apisix-on-kubernetes apisix-helm-chart username@server-ip:~/
+
+Then SSH into the Kubernetes server:
+ssh username@server-ip
+
+Navigate to the Helm chart directory:
+cd ~/apisix-helm-chart
+
+
+4. Update Image Sources (Internal Registry) 
+
+How to Transferring Docker Images to a Private Registry: https://docs.google.com/document/d/1Rx8TGO1YNy2_z6AF-PgYkicv603APbFntXcmXE_W5pE/edit?tab=t.0#heading=h.a76c3kbgfgid
+To pull images from an internal registry instead of an external one, update values.yaml files.
+4.1. APISIX 
+Edit values.yaml for APISIX:
+nano ~/apisix-helm-chart/charts/apisix/values.yaml
+
+
+Modify:
+image:
+  repository: 10.x.x.x:6001/docker.io/apache/apisix
+  tag: latest
+
+
+Then:
+/apisix-helm-chart/charts/apisix$ cd charts/
+upscwebdev@upsc-k8s-devm:~/apisix-helm-chart/charts/apisix/charts$ ls
+apisix-dashboard-0.8.2.tgz  apisix-ingress-controller-0.14.0.tgz  etcd-9.7.3.tgz
+upscwebdev@upsc-k8s-devm:~/apisix-helm-chart/charts/apisix/charts$ tar -zxvf etcd-9.7.3.tgz
+
+
+upscwebdev@upsc-k8s-devm:~/apisix-helm-chart/charts/apisix/charts$ ls
+apisix-dashboard-0.8.2.tgz  apisix-ingress-controller-0.14.0.tgz  etcd  etcd-9.7.3.tgz
+upscwebdev@upsc-k8s-devm:~/apisix-helm-chart/charts/apisix/charts$ cd etcd/
+
+4.2. etcd 
+Edit values.yaml for etcd:
+nano ~/apisix-helm-chart/charts/apisix/charts/etcd/values.yaml
+
+
+Modify:
+image:
+  repository: 10.x.x.x.x:6001/docker.io/bitnami/etcd
+  tag: latest
+
+
+4.3. APISIX Dashboard 
+Edit values.yaml for APISIX Dashboard:
+nano ~/apisix-helm-chart/charts/apisix/charts/apisix-dashboard/values.yaml
+
+
+Modify:
+image:
+  repository: 10.x.x.x:6001/docker.io/apache/apisix-dashboard
+  tag: latest
+
+
+These updates ensure APISIX pulls images from the internal registry.
+5. Deploy APISIX Using Helm
+5.1. Create Namespace
+kubectl create ns apisix
+
+
+5.2. Install APISIX 
+helm install apisix . -n apisix
+
+
+
+6. Verify APISIX Deployment
+6.1. Pods
+kubectl get pods -n apisix
+
+
+✅ Expected Output:
+upscwebstg@upsc-k8s-stgm:~$ kubectl get pod -n apisix
+NAME                                READY   STATUS    RESTARTS        AGE
+apisix-7f4d8497f5-s78fr             1/1     Running   0               58m
+apisix-dashboard-7c8d48d9bd-9dgw5   1/1     Running   0               3h58m
+apisix-etcd-0                       1/1     Running   1 (6h23m ago)   6h24m
+apisix-etcd-1                       1/1     Running   0               6h24m
+apisix-etcd-2                       1/1     Running   1 (6h23m ago)   6h24m
+
+
+If any pod has too many restarts, check logs:
+kubectl logs apisix-7f4d8497f5-s78fr -n apisix
+
+
+6.2. Services
+kubectl get svc -n apisix
+
+
+✅ Expected Output:
+NAME                   TYPE        CLUSTER-IP       PORT(S)             AGE
+apisix-admin           ClusterIP   10.x.x.18   9180/TCP            34m
+apisix-dashboard       ClusterIP   10.x.x.142   80/TCP              34m
+apisix-etcd            ClusterIP   10.x.x.40    2379/TCP,2380/TCP   34m
+apisix-etcd-headless   ClusterIP   None             2379/TCP,2380/TCP   34m
+apisix-gateway         NodePort    10.x.x.60     80:31867/TCP        34m
+
+APISIX Dashboard is accessible via port 80.
+Admin API runs on port 9180.
+API Gateway is exposed on port 31867 (NodePort).
+6.3. Check Persistent Volumes (PV)
+kubectl get pv -n apisix
+
+
+✅ Expected Output:
+NAME                     CAPACITY   ACCESS MODES   STATUS        CLAIM
+apisix-nfs-pv            10Gi       RWX            Bound         ingress-apisix/apisix-pvc
+pvc-387a0fee-64e0-40ce   10Gi       RWO            Bound         apisix/data-apisix-etcd-0
+pvc-5df0404a-cce1-477f   10Gi       RWO            Bound         apisix/data-apisix-etcd-1
+
+This confirms persistent volumes for etcd and APISIX are correctly bound.
+6.4. Check Persistent Volume Claims (PVC)
+kubectl get pvc -n apisix
+
+
+✅ Expected Output:
+NAME                 STATUS   VOLUME            CAPACITY   ACCESS MODES
+data-apisix-etcd-0   Bound    pvc-xxx-xxxx-xxxx  10Gi       RWO
+data-apisix-etcd-1   Bound    pvc-xxx-xxxx-xxxx  10Gi       RWO
+data-apisix-etcd-2   Bound    pvc-xxx-xxxx-xxxx   10Gi       RWO
+
+This confirms that persistent storage for etcd instances is properly configured.
+

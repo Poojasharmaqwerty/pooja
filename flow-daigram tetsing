@@ -1,0 +1,26 @@
+Test Setup:
+ ├── Mocked session, realm, user, context, uriInfo
+ └── All dependencies are fake objects to isolate logic
+
+Validation Flow:
+ ┌────────────────────────────┐
+ │ validate(realm, user, pw) │
+ └────────────┬──────────────┘
+              ▼
+     Is URI admin path? ──► Yes → return null
+              │
+              ▼
+     Is user or password null? ──► Yes → return null
+              │
+              ▼
+  Check user.getFirstAttribute("passwordLastUpdated")
+              │
+         ┌────┴────┐
+      Is valid?   No → return error
+         │
+   Is older than N days? ──► Yes → return error
+         │
+         No
+         ▼
+     return null (valid password)
+
